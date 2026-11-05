@@ -9,6 +9,7 @@ from simulated_player_stats import project_box_score
 from matchup_engine import defensive_impact,matchup_adjustment
 from accuracy_tracker import evaluate
 from weekly_updates import snapshot
+from team_quality import assess
 
 PAGE=Path(__file__).with_name('index.html').read_bytes()
 TEAM_CACHE={}
@@ -46,10 +47,10 @@ def teams(league):
 def simulate(q):
     league=q.get('league',['NFL'])[0]; away=q.get('away',[''])[0];home=q.get('home',[''])[0]
     season=int(q.get('season',['2026'])[0]);n=int(q.get('runs',['1000'])[0]); refresh=q.get('refresh',['1'])[0]=='1'
-    if season<2020 or season>2030 or n not in (500,1000,2000,5000):raise ValueError('Invalid season or simulations')
+    if season<2020 or season>2030 or n not in (10,25,50,100,250,500,1000,2000,5000):raise ValueError('Invalid season or simulations')
     t=teams(league)
     if away not in t or home not in t or away==home:raise ValueError('Choose two different teams')
-    td={};hist={};warnings=[]
+    td={};hist={};quality={};warnings=[]
     for name in (away,home):
         if refresh:
             try:td[name]=fetch_team(league,t[name])
@@ -57,6 +58,12 @@ def simulate(q):
             try:hist[name]=season_player_summary(LEAGUES[league],t[name]['id'],season)
             except Exception as e:hist[name]={};warnings.append(f'{name}: player history unavailable ({str(e)[:90]})')
         else:td[name]={};hist[name]={}
+        try:
+            quality[name]=assess(league,t[name]['id'],season)
+            if not quality[name].get('available'):warnings.append(f'{name}: no completed season games available for team-strength rating')
+        except Exception as e:
+            quality[name]={'available':False,'games':0,'adjustment':0,'notice':'Team record unavailable'}
+            warnings.append(f'{name}: team strength data unavailable ({str(e)[:90]})')
     values={};detail={}
     for name in (away,home):
         s,parts=strength(td[name],league)
@@ -67,8 +74,9 @@ def simulate(q):
             other=home if name==away else away
             if hist[other].get('players'):
                 s+=matchup_adjustment(hist[name],td[name].get('starters',{}),hist[other],td[other].get('starters',{}),td[name].get('injuries',[]),td[other].get('injuries',[]))['points']
+        s+=quality[name].get('adjustment',0)
         values[name]=s
-        detail[name]={'starter':td[name].get('starter','Unknown'), 'injuries':td[name].get('injuries',[])[:20], 'player_count':len(hist[name].get('players',[])), 'strength':round(s,2),'components':parts,'starters':td[name].get('starters',{})}
+        detail[name]={'starter':td[name].get('starter','Unknown'), 'injuries':td[name].get('injuries',[])[:20], 'player_count':len(hist[name].get('players',[])), 'strength':round(s,2),'components':parts,'team_quality':quality[name],'starters':td[name].get('starters',{})}
     result=monte_carlo(values[away],values[home],league,n)
     player={}
     for idx,name in enumerate((away,home)):

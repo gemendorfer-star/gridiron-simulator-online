@@ -10,6 +10,7 @@ from matchup_engine import defensive_impact,matchup_adjustment
 from accuracy_tracker import evaluate
 from weekly_updates import snapshot
 from team_quality import assess
+from elo_live import load_pair
 
 PAGE=Path(__file__).with_name('index.html').read_bytes()
 TEAM_CACHE={}
@@ -70,6 +71,9 @@ def simulate(q):
     if not refresh:
         warnings.append('Player and injury refresh is OFF; current roster data is not used.')
     for name in (away,home):
+        if refresh and (td[name].get('starter') in (None,'Unknown') or td[name].get('injury_state')=='Unknown'):
+            warnings.append(f'{name}: starting quarterback or injury availability is unverified; do not treat player projections as current.')
+    for name in (away,home):
         s,parts=strength(td[name],league)
         if refresh and hist[name].get('players'):
             imp,used=season_starter_impact(hist[name],td[name].get('starters',{}),td[name].get('injuries',[]))
@@ -83,6 +87,19 @@ def simulate(q):
         s+=quality[name].get('adjustment',0)
         values[name]=s
         detail[name]={'starter':td[name].get('starter','Unknown'), 'injuries':td[name].get('injuries',[])[:20], 'player_count':len(hist[name].get('players',[])), 'strength':round(s,2),'components':parts,'team_quality':quality[name],'starters':td[name].get('starters',{})}
+    # Prefer a recent, date-stamped Elo rating when a trained historical snapshot
+    # has been explicitly installed. Do not add it to the old strength rating:
+    # doing so would double-count team form and record.
+    elo,elo_warning=load_pair(league,t[away]['id'],t[home]['id'],season)
+    if elo:
+        # Elo difference is converted to a conservative expected-point margin.
+        # Retain a small injury adjustment; no claim of calibrated score accuracy.
+        margin=max(-21,min(21,(elo['home']-elo['away'])/28.0))
+        values[away]=-margin/2 - min(3,detail[away]['components']['injury_penalty']*.25)
+        values[home]=margin/2 - min(3,detail[home]['components']['injury_penalty']*.25)
+        warnings.append('Elo baseline used (snapshot '+elo['as_of']+'). Win probabilities and scores are still unvalidated for this simulator.')
+    elif elo_warning:
+        warnings.append(elo_warning)
     result=monte_carlo(values[away],values[home],league,n)
     player={}
     for idx,name in enumerate((away,home)):
@@ -121,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
                     try: cached=evaluate(league,season,weeks)
                     finally: SIM_SLOTS.release()
                     with BACKTEST_LOCK:BACKTEST_CACHE[key]=cached
+                cached=dict(cached)
+                cached['evaluation_scope']='Simple historical baseline only; NOT the live matchup simulator, player forecasts, or Elo held-out test.'
                 return self.json(200,cached)
             except ValueError as e:return self.json(400,{'error':str(e)})
             except Exception as e:return self.json(502,{'error':'Accuracy test unavailable: '+str(e)[:150]})

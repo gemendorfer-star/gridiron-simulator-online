@@ -65,15 +65,21 @@ def simulate(q):
             quality[name]={'available':False,'games':0,'adjustment':0,'notice':'Team record unavailable'}
             warnings.append(f'{name}: team strength data unavailable ({str(e)[:90]})')
     values={};detail={}
+    if not all(quality[name].get('available') and quality[name].get('games',0)>=3 for name in (away,home)):
+        warnings.append('LOW CONFIDENCE: one or both teams have fewer than 3 verified completed games. Do not rely on the predicted winner or score.')
+    if not refresh:
+        warnings.append('Player and injury refresh is OFF; current roster data is not used.')
     for name in (away,home):
         s,parts=strength(td[name],league)
         if refresh and hist[name].get('players'):
             imp,used=season_starter_impact(hist[name],td[name].get('starters',{}),td[name].get('injuries',[]))
             defense=defensive_impact(hist[name],td[name].get('starters',{}),td[name].get('injuries',[]))
-            s+=imp+defense['points']
+            # These are heuristic, overlapping measures of the same season performance.
+            # Shrink their combined influence to reduce double counting.
+            s+=max(-3.0,min(3.0,0.25*(imp+defense['points'])))
             other=home if name==away else away
             if hist[other].get('players'):
-                s+=matchup_adjustment(hist[name],td[name].get('starters',{}),hist[other],td[other].get('starters',{}),td[name].get('injuries',[]),td[other].get('injuries',[]))['points']
+                s+=max(-1.5,min(1.5,0.25*matchup_adjustment(hist[name],td[name].get('starters',{}),hist[other],td[other].get('starters',{}),td[name].get('injuries',[]),td[other].get('injuries',[]))['points']))
         s+=quality[name].get('adjustment',0)
         values[name]=s
         detail[name]={'starter':td[name].get('starter','Unknown'), 'injuries':td[name].get('injuries',[])[:20], 'player_count':len(hist[name].get('players',[])), 'strength':round(s,2),'components':parts,'team_quality':quality[name],'starters':td[name].get('starters',{})}
@@ -83,6 +89,7 @@ def simulate(q):
         side='Away' if idx==0 else 'Home'
         drives=[d for d in result['sample_drives'] if d[1]==side]
         player[name]=project_box_score(hist[name],td[name],sum(d[5] for d in drives),drives,seed=41+idx)
+    warnings.append('Player box scores describe ONE illustrative sampled game, not the average predicted score. They are not verified individual player forecasts.')
     return {'away':away,'home':home,'result':result,'details':detail,'players':player,'warnings':warnings,'refresh':refresh}
 
 class Handler(BaseHTTPRequestHandler):

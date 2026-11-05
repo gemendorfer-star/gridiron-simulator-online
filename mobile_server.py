@@ -19,8 +19,24 @@ def teams(league):
     if league not in LEAGUES: raise ValueError('Unknown league')
     with LOCK:
         if league in TEAM_CACHE:return TEAM_CACHE[league]
-    data=extract_teams(get_json(f'{BASE}{LEAGUES[league]}/teams?limit=500'))
-    with LOCK:TEAM_CACHE[league]=data
+    # College football is split across ESPN group listings. Merge the default,
+    # FBS (80), and FCS (81) feeds instead of relying on the default list alone.
+    code = LEAGUES[league]
+    groups = (None, '80', '81') if league == 'College Football' else (None,)
+    data = {}
+    errors = []
+    for group in groups:
+        url = f'{BASE}{code}/teams?limit=1000'
+        if group is not None:
+            url += f'&groups={group}'
+        try:
+            data.update(extract_teams(get_json(url)))
+        except Exception as exc:
+            errors.append(str(exc))
+    if not data:
+        raise RuntimeError('Could not load team listings: ' + '; '.join(errors)[:180])
+    with LOCK:
+        TEAM_CACHE[league] = data
     return data
 
 def simulate(q):

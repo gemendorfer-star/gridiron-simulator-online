@@ -27,7 +27,7 @@ def project_box_score(history,team_data,score,drives,seed=7):
     rushing=max(0,total_yards-passing) if rush else 0
     if not qb and not rush:total_yards=passing=rushing=0
     touchdowns=sum(1 for d in drives if d[4]=='Touchdown')
-    lines=[f'Illustrative simulated team score: {score}',f'Illustrative offensive yards: {total_yards} (passing {passing}, rushing {rushing})', 'Based on season box-score shares and one sample simulated game; NOT observed game statistics.','']
+    lines=[f'Illustrative simulated team score: {score}',f'Illustrative offensive yards: {total_yards} (passing {passing}, rushing {rushing})', 'This is ONE SAMPLE GAME, not the average score above. Player lines are illustrative allocations, NOT validated player forecasts.','']
     if qb:
         q=qb[0];td=min(touchdowns,round(touchdowns*.65));ints=rng.choices([0,1,2],[.68,.27,.05])[0]
         lines.append(f'PASSING: {q["name"]}: {passing} yards, {td} TD, {ints} INT')

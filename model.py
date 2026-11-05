@@ -89,11 +89,12 @@ def play_game(away_strength,home_strength,league='NFL',rng=None,record=False):
         if scores[0]==scores[1]:scores[rng.randrange(2)]+=2
     return scores,drives
 
-def monte_carlo(a,h,league,n=2000,seed=42):
+def monte_carlo(a,h,league,n=2000,seed=None):
     rng=random.Random(seed);ascores=[];hscores=[];wins=[0,0,0]
     for _ in range(n):
         score,_=play_game(a,h,league,rng);ascores.append(score[0]);hscores.append(score[1]);wins[0 if score[0]>score[1] else 1 if score[1]>score[0] else 2]+=1
-    return {'away_pct':100*wins[0]/n,'home_pct':100*wins[1]/n,'tie_pct':100*wins[2]/n,'away_score':statistics.mean(ascores),'home_score':statistics.mean(hscores),'n':n,'sample_drives':play_game(a,h,league,random.Random(seed+1),True)[1]}
+    sample_scores,sample_drives=play_game(a,h,league,rng,True)
+    return {'away_pct':100*wins[0]/n,'home_pct':100*wins[1]/n,'tie_pct':100*wins[2]/n,'away_score':statistics.mean(ascores),'home_score':statistics.mean(hscores),'n':n,'sample_drives':sample_drives,'sample_score':{'away':sample_scores[0],'home':sample_scores[1]},'model_status':'Experimental; not calibrated or validated against held-out games'}
 
 def backtest_schedule(games):
     """Chronological expanding-window, one-team baseline. No future results used for each forecast.

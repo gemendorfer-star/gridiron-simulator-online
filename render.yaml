@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: gridiron-simulator-online
+    runtime: python
+    plan: free
+    buildCommand: "python -m compileall -q ."
+    startCommand: "python mobile_server.py"
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8

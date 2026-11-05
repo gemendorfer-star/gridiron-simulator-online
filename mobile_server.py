@@ -7,6 +7,8 @@ from season_player_db import season_player_summary,season_starter_impact
 from model import strength,monte_carlo
 from simulated_player_stats import project_box_score
 from matchup_engine import defensive_impact,matchup_adjustment
+from accuracy_tracker import evaluate
+from weekly_updates import snapshot
 
 PAGE=Path(__file__).with_name('index.html').read_bytes()
 TEAM_CACHE={}
@@ -14,6 +16,8 @@ LOCK=threading.Lock()
 SIM_SLOTS=threading.BoundedSemaphore(2)
 REQUEST_TIMES={}
 RATE_LOCK=threading.Lock()
+BACKTEST_CACHE={}
+BACKTEST_LOCK=threading.Lock()
 
 def teams(league):
     if league not in LEAGUES: raise ValueError('Unknown league')
@@ -80,10 +84,31 @@ class Handler(BaseHTTPRequestHandler):
         path=urllib.parse.urlsplit(self.path);q=urllib.parse.parse_qs(path.query)
         if path.path=='/health':return self.json(200,{'status':'ok'})
         if path.path=='/':return self.send(200,PAGE,'text/html; charset=utf-8')
+        if path.path=='/api/weekly':
+            try:
+                league=q.get('league',['NFL'])[0]
+                return self.json(200,snapshot(league))
+            except ValueError as e:return self.json(400,{'error':str(e)})
+            except Exception as e:return self.json(502,{'error':'Weekly data unavailable: '+str(e)[:140]})
         if path.path=='/api/teams':
             try:
                 league=q.get('league',['NFL'])[0];return self.json(200,{'teams':sorted(teams(league))})
             except Exception as e:return self.json(502,{'error':str(e)[:180]})
+        if path.path=='/api/accuracy':
+            try:
+                league=q.get('league',['NFL'])[0]
+                season=int(q.get('season',['2024'])[0])
+                weeks=int(q.get('weeks',['10'])[0])
+                key=(league,season,weeks)
+                with BACKTEST_LOCK: cached=BACKTEST_CACHE.get(key)
+                if cached is None:
+                    if not SIM_SLOTS.acquire(blocking=False):return self.json(503,{'error':'Server busy; try again shortly.'})
+                    try: cached=evaluate(league,season,weeks)
+                    finally: SIM_SLOTS.release()
+                    with BACKTEST_LOCK:BACKTEST_CACHE[key]=cached
+                return self.json(200,cached)
+            except ValueError as e:return self.json(400,{'error':str(e)})
+            except Exception as e:return self.json(502,{'error':'Accuracy test unavailable: '+str(e)[:150]})
         if path.path=='/api/simulate':
             client=self.client_address[0]
             now=time.monotonic()
